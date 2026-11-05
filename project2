@@ -1,0 +1,147 @@
+import query
+from pyrogram import Client, filters
+import config, datetime, keyboards, random, json
+from Stablecog_AI import generate
+from pyrogram.types import ForceReply, InputMediaPhoto
+
+bot = Client(
+    api_id=config.API_ID,
+    api_hash=config.API_HASH,
+    bot_token=config.BOT_TOKEN,
+    name="my_bot",
+)
+def button_filter(button):
+   async def func(_, __, msg):
+       return msg.text == button.text
+   return filters.create(func, "ButtonFilter", button=button)
+
+@bot.on_message(filters.command("start"))
+async def start(bot, message):
+    await message.reply("Добро пожаловать!",
+                        reply_markup=keyboards.kb_main)
+    await bot.send_message(message.chat.id, "Лови стикер")
+    await bot.send_sticker(message.chat.id, "CAACAgIAAxkBAAERNENqA3TIn133ZqwZCx3Sntqr8zfyhgAClogAAoE08UmdF_43h2ZjvjsE")
+    with open("user.json","r") as file:
+        user= json.load(file)
+        if str(message.from_user.id) not in user.keys():
+            user[message.from_user.id]=100
+            with open("users.json", "w") as file:
+                json.dump(user, file)
+    with open("user.json", "r") as file:
+        user=json.load(file)
+    if user[str(message.from_user.id)] >=10:
+        await message.reply("Твой ход", reply_markup=keyboards.kb_main )
+    else:
+        await message.reply(f"Неватает средств.На твоём счету{user[str(message.from_user.id)]}. Минимальная сумма для игры - 1")
+
+@bot.on_message(filters.command("info")    | button_filter(keyboards.btn_info))
+async def info(bot, message):
+    await message.reply(f'Хай! Ниже описание что может делать этот бот.')
+
+@bot.on_message(filters.command("time")      | button_filter(keyboards.btn_time))
+async def time(bot, message):
+    await message.reply(f'Текущие даты и время:         {datetime.datetime.now()}')
+
+@bot.on_message(filters.command("games")   | button_filter(keyboards.btn_games))
+async def games(bot, message):
+    await message.reply(f'Выбери игру',reply_markup=keyboards.kb_games)
+
+@bot.on_message(filters.command("back")   | button_filter(keyboards.btn_back))
+async def back(bot, message):
+    await message.reply(f'Выбери ',reply_markup=keyboards.kb_main)
+
+@bot.on_message(filters.command("games")   | button_filter(keyboards.btn_info1))
+async def back(bot, message):
+    await message.reply(f'Выбери игру',reply_markup=keyboards.kb_rsp)
+
+@bot.on_message(button_filter(keyboards.btn_rock)   |
+                button_filter(keyboards.btn_scissors)  |
+                button_filter(keyboards.btn_paper)  )
+async def choice_rps(bot, message):
+    with open("user.json","r") as file:
+        users=json.load(file)
+
+    rock=keyboards.btn_rock.text
+    scissors = keyboards.btn_scissors.text
+    paper = keyboards.btn_paper.text
+
+    user=message.text
+    pc=random.choice([rock, scissors, paper])
+    if user==pc:
+        await message.reply("Ничья")
+    elif (user==rock and pc==scissors) or (user==scissors and pc==paper)  or  (user==paper and pc==rock):
+        await message.reply(f"Ты выйграл. Моя похвола. Бот выбрал {pc}",reply_markup=keyboards.kb_games)
+        users[str(message.from_user.id)] +=10
+
+    else:
+        await message.reply(f"Ты проиграл. Бот выбрал {pc}",reply_markup=keyboards.kb_games)
+        users[str(message.from_user.id)] -=10
+    with open("user.json", "w") as file:
+        json.dump(users, file)
+
+
+
+@bot.on_message(filters.command("image"))
+async def image(bot, message):
+   if len(message.text.split()) > 1:
+       query = message.text.replace('/image', '')
+       await message.reply_text(f"Генерирую изображение по запросу '{query}', подождите немного...")
+       images = generate(query)
+
+       if images:
+           await bot.send_photo(message.chat.id, images[0], reply_to_message_id=message.id)
+       else:
+           await message.reply_text("Возникла ошибка, попробуйте еще раз", reply_to_message_id=message.id)
+   else:
+       await message.reply_text("Введите запрос")
+
+query_text = "Введи запрос для генерации изображения"
+@bot.on_message(button_filter(keyboards.btn_image))
+async def image2(bot, message):
+    await bot.send_message(message.chat.id, query_text, reply_markup=ForceReply(True))
+
+@bot.on_message(filters.reply)
+async def reply(bot, message):
+   if message.reply_to_message.text == query_text:
+       query = message.text
+       await message.reply_text(f"Генерирую изображение по запросу **{query}**. Ожидание около минуты")
+       images = generate(query)
+
+       if images:
+           await bot.send_media_group(chat_id=message.chat.id,media=[InputMediaPhoto(images[0]),InputMediaPhoto(images[1])], reply_to_message_id=message.id)
+           await message.reply("Возврат в главное меню", reply_markup=keyboards.kb_main)
+       else:
+           await message.reply_text("Возникла ошибка, попробуйте еще раз",reply_to_message_id=message.id,reply_markup=keyboards.kb_main)
+
+@bot.on_message(filters.command("guest")   | button_filter(keyboards.btn_guestion))
+async def kvest(bot, message):
+    await message.reply("Хотите ли вы отправиться в увлекательное приключение, полное загадок и лабиринтов?", reply_markup=keyboards.inline_kb_start_guest)
+
+@bot.on_callback_query()
+async def handle_query(bot, query):
+    if query.data=="start_guestion":
+        await bot.answer_callback_query( query.id,text="Добро пожаловать в квест под названием выбери правильную дверь",show_alert=True)
+        await query.message.reply_text("Ты стоишь перед двумя дверьми.""Какую из них ты выберешь?",  reply_markup=keyboards.inline_kb_choice_door)
+        await query.message.delete()
+    elif query.data=="left_door":
+        await query.message.reply_text("Ты входишь в левую дверь. Перед тобой дракон.Твои действия:", reply_markup=keyboards.inline_kb_left_door)
+        await query.message.delete()
+    elif query.data=="right_door":
+        await query.message.reply_text("Ты выбрал праильную дверь. Но надо выбрать только 1 вещь что бы выйти отсюда. Выбирай быстрее, а иначе всё рухнет:", reply_markup=keyboards.inline_kb_right_door)
+        await query.message.delete()
+    elif query.data=="kill_dragon":
+        await bot.answer_callback_query(query.id,text="Ты дерёшся с драконом. Но он сильнее тебя. Ты стараешся но всё равно умираешь.ИГРА ОКОНЧЕНА!!", show_alert=True)
+        await query.message.delete()
+    elif query.data=="Crown_KIng_Artur":
+       await bot.answer_callback_query(query.id, text="Ты выбрал корону которая даёт славу и бесконечные богатства. Ира окончена, вы прошли её. Поздравляю ты прошёл квест!", show_alert=True)
+       await query.message.delete()
+    elif query.data=="run":
+        await bot.answer_callback_query(query.id, text="Ты выбрал правильное действие и ты нашёл выход", show_alert=True)
+        await query.message.delete()
+    elif query.data=="Eye_of_Sauron":
+        await bot.answer_callback_query(query.id, text="Ты выбрал корону которая даёт славу и бесконечные богатства. Ира окончена, вы прошли её. Поздравляю ты прошёл квест!", show_alert=True)
+        await query.message.delete()
+
+
+
+bot.run()
